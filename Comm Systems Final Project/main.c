@@ -1,13 +1,15 @@
 /*
  * Comm_Systems_Final_Project.c
  *
- * Created: 1/17/2018 2:15:51 PM
- * Author : Michael Goberling
+ * Created : 1/17/2018 2:15:51 PM
+ * Authors : Max Hoobler, Michael Goberling, Will Picken, James White
+ * Project : Communication Systems Final Project 
  */ 
 
 #include "capi324v221.h"
 #define FOSC 20000000
 #define BAUD 9600
+
 //===================== Prototypes =====================
 void init_adc( void );
 void sample_adc( void );
@@ -37,27 +39,21 @@ void CBOT_main( void )
 	//Initialize ADC subsystem to Channel 3 and set ref voltage & USART subsystem
 	init_adc();
 	
-	//ubrr value = (((fosc/(16*baudrate)) - 1)
-	//(20,000,000/(16*9,600)) - 1 = 129.2
-	
-	//MYUBRR = (FOSC/(16*BAUD) - 1);
-	//LCD_printf("%d", MYUBRR);
-	
 	init_USART( 129 );
+	
+	STEPPER_run(STEPPER_BOTH, STEPPER_FWD, 150);
+			
 	
 	while(1)
 	{
-		//STEPPER_move_rn(STEPPER_BOTH, 
-		//	STEPPER_FWD, 200, 400, 
-		//	STEPPER_FWD, 100, 400);
-			
+	
 		sample_adc();
+		
+		tx_USART( transmit_temp );
+		remote_temp = rx_USART();
 		
 		LCD_printf_RC(3, 0, "This Temp(C): %d\n" , transmit_temp);
 		LCD_printf_RC(2, 0, "Other Temp(C): %d\n", remote_temp);
-		
-		tx_USART( transmit_temp );
-		//remote_temp = rx_USART();
 		
 		TMRSRVC_delay( 50 );
 	}
@@ -70,29 +66,29 @@ void init_adc()
 }
 
 void sample_adc()
-{
+{	
 	unsigned int sum = 0;
-	
+
 	//Fill an array with 10 values
 	for(int i = 0; i < 9; i++)
 	{
-		TMRSRVC_delay( 50 );
+		TMRSRVC_delay( 30 );
 		sample = ADC_sample();
 		temp = sample * (5.0 / 1024);
-		
+	
 		//TMP36 does 750mV at 25 celsius
 		//Subtract 500mV to provide linear readings
 		//TMP36 scale = 10mV/degree celsius
-		transmit_temp = (int)(100*(temp - 0.5));	
+		transmit_temp = (int)(100*(temp - 0.5));
 		adc_array[i] = transmit_temp;
 	}
-	
-	//Sum that array up
+
+			//Sum that array up
 	for(int i = 0; i < 9; i++)
 	{
-		sum += adc_array[i]; 
+		sum += adc_array[i];
 	}
-	
+
 	//That's the new value
 	transmit_temp = (sum/10);
 	
@@ -112,19 +108,73 @@ void init_USART( int UBRR )
 }
 
 void tx_USART( unsigned char d )
-{
-	LCD_printf_RC(1, 0, "Status: TX");
-	while(!(UCSR1A & (1 << UDRE1)));	//wait until the transmit buffer is empty
-	LCD_clear();
-	UDR1 = d; //then place the data in the transmit buffer
+{	
+
+	static BOOL timer_started = FALSE;
+				
+	static TIMEROBJ sense_timer;
+				
+	if ( timer_started == FALSE )
+	{
+			
+		TMRSRVC_new( &sense_timer, TMRFLG_NOTIFY_FLAG, TMRTCM_RESTART,
+					500 );
+					
+		timer_started = TRUE;
+					
+	} // end if()
+				
+	// Otherwise, just do the usual thing and just 'sense'.
+	else
+	{
+
+		if ( TIMER_ALARM( sense_timer) )
+		{
+
+			LED_toggle( LED_Green );
+						
+			while(!(UCSR1A & (1 << UDRE1)));	//wait until the transmit buffer is empty
+			UDR1 = d; //then place the data in the transmit buffer
+
+			TIMER_SNOOZE( sense_timer );
+						
+		} // end if()
+
+	} // end else.
+				
 }
 
 unsigned char rx_USART( void )
-{
-	LCD_printf_RC(1, 0, "Status: RX");
-	while(!(UCSR1A & (1 << RXC1)));	//wait until data has been received
-	LCD_clear();
-	return UDR1; //return that data
+{ 
+
+	static BOOL timer_started = FALSE;
+					
+	static TIMEROBJ sense_timer_2;
+					
+	if ( timer_started == FALSE )
+	{
+						
+		TMRSRVC_new( &sense_timer_2, TMRFLG_NOTIFY_FLAG, TMRTCM_RESTART,
+		500 );
+						
+		timer_started = TRUE;
+						
+	} // end if()
+					
+	else
+	{
+
+		if ( TIMER_ALARM( sense_timer_2) )
+		{
+
+			LED_toggle( LED_Green );
+							
+			while(!(UCSR1A & (1 << RXC1)));
+			return UDR1;
+							
+			TIMER_SNOOZE( sense_timer_2 );
+							
+		} // end if()
+
+	} // end else.
 }
-
-
